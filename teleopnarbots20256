@@ -1,0 +1,335 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.util.ElapsedTime;
+
+/**
+ * DECODE 2025-2026 TeleOp Mode
+ * 
+ * This OpMode controls the robot during the driver-controlled period (TELEOP).
+ * 
+ * CONTROLS:
+ * Gamepad 1 (Driver):
+ *   - Left Stick: Forward/Backward and Strafe (if mecanum)
+ *   - Right Stick X: Turn
+ *   - Right Bumper: Intake In
+ *   - Left Bumper: Intake Out
+ *   - A Button: Slow mode toggle
+ *   
+ * Gamepad 2 (Operator):
+ *   - Left Stick Y: Arm/Lift control
+ *   - Right Trigger: Launcher/Shooter
+ *   - A: Claw Close
+ *   - B: Claw Open
+ *   - X: Gate Actuator Toggle
+ *   - Dpad Up/Down: Fine adjust arm position
+ */
+@TeleOp(name="DECODE TeleOp", group="Competition")
+public class DECODETeleOp extends OpMode {
+    
+    // Timers
+    private ElapsedTime runtime = new ElapsedTime();
+    private ElapsedTime matchTimer = new ElapsedTime();
+    
+    // Drive Motors (adjust names based on your configuration)
+    private DcMotor leftFront = null;
+    private DcMotor leftBack = null;
+    private DcMotor rightFront = null;
+    private DcMotor rightBack = null;
+    
+    // Mechanism Motors
+    private DcMotor intake = null;
+    private DcMotor arm = null;
+    private DcMotor launcher = null;
+    
+    // Servos
+    private Servo claw = null;
+    private Servo gateServo = null;
+    private Servo wrist = null;
+    
+    // Constants
+    private static final double SLOW_MODE_MULTIPLIER = 0.4;
+    private static final double NORMAL_SPEED = 1.0;
+    
+    // Servo Positions
+    private static final double CLAW_OPEN = 0.5;
+    private static final double CLAW_CLOSED = 0.0;
+    private static final double GATE_OPEN = 0.7;
+    private static final double GATE_CLOSED = 0.3;
+    private static final double WRIST_UP = 0.8;
+    private static final double WRIST_DOWN = 0.2;
+    
+    // Arm Positions (encoder counts - adjust for your robot)
+    private static final int ARM_GROUND = 0;
+    private static final int ARM_LOW = 500;
+    private static final int ARM_MID = 1000;
+    private static final int ARM_HIGH = 1500;
+    
+    // State Variables
+    private boolean slowMode = false;
+    private boolean gateOpen = false;
+    private double speedMultiplier = NORMAL_SPEED;
+    
+    // Button state tracking for toggles
+    private boolean lastAButton = false;
+    private boolean lastXButton = false;
+    
+    @Override
+    public void init() {
+        telemetry.addData("Status", "Initializing...");
+        
+        // Initialize drive motors
+        try {
+            leftFront = hardwareMap.get(DcMotor.class, "left_front");
+            leftBack = hardwareMap.get(DcMotor.class, "left_back");
+            rightFront = hardwareMap.get(DcMotor.class, "right_front");
+            rightBack = hardwareMap.get(DcMotor.class, "right_back");
+            
+            // Set motor directions (adjust if your robot drives backwards)
+            leftFront.setDirection(DcMotor.Direction.FORWARD);
+            leftBack.setDirection(DcMotor.Direction.FORWARD);
+            rightFront.setDirection(DcMotor.Direction.REVERSE);
+            rightBack.setDirection(DcMotor.Direction.REVERSE);
+            
+            // Set zero power behavior
+            leftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            leftBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            rightFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            rightBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            
+        } catch (Exception e) {
+            telemetry.addData("Error", "Drive motors not found");
+        }
+        
+        // Initialize mechanism motors
+        try {
+            intake = hardwareMap.get(DcMotor.class, "intake");
+            intake.setDirection(DcMotor.Direction.FORWARD);
+            intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        } catch (Exception e) {
+            telemetry.addData("Warning", "Intake motor not found");
+        }
+        
+        try {
+            arm = hardwareMap.get(DcMotor.class, "arm");
+            arm.setDirection(DcMotor.Direction.FORWARD);
+            arm.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+            arm.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            arm.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        } catch (Exception e) {
+            telemetry.addData("Warning", "Arm motor not found");
+        }
+        
+        try {
+            launcher = hardwareMap.get(DcMotor.class, "launcher");
+            launcher.setDirection(DcMotor.Direction.FORWARD);
+        } catch (Exception e) {
+            telemetry.addData("Warning", "Launcher motor not found");
+        }
+        
+        // Initialize servos
+        try {
+            claw = hardwareMap.get(Servo.class, "claw");
+            claw.setPosition(CLAW_OPEN);
+        } catch (Exception e) {
+            telemetry.addData("Warning", "Claw servo not found");
+        }
+        
+        try {
+            gateServo = hardwareMap.get(Servo.class, "gate");
+            gateServo.setPosition(GATE_CLOSED);
+        } catch (Exception e) {
+            telemetry.addData("Warning", "Gate servo not found");
+        }
+        
+        try {
+            wrist = hardwareMap.get(Servo.class, "wrist");
+            wrist.setPosition(WRIST_UP);
+        } catch (Exception e) {
+            telemetry.addData("Warning", "Wrist servo not found");
+        }
+        
+        telemetry.addData("Status", "Initialized - Ready to Start!");
+        telemetry.addData("", "Press PLAY when ready");
+        telemetry.update();
+    }
+    
+    @Override
+    public void init_loop() {
+        telemetry.addData("Status", "Waiting for start...");
+        telemetry.addData("Match Time", "2:30 remaining");
+        telemetry.update();
+    }
+    
+    @Override
+    public void start() {
+        runtime.reset();
+        matchTimer.reset();
+        telemetry.addData("Status", "Running");
+    }
+    
+    @Override
+    public void loop() {
+        // === GAMEPAD 1 - DRIVER ===
+        
+        // Drive Control (Mecanum or Tank)
+        double drive = -gamepad1.left_stick_y;  // Forward/Backward
+        double strafe = gamepad1.left_stick_x;   // Left/Right (mecanum only)
+        double turn = gamepad1.right_stick_x;    // Rotation
+        
+        // Slow mode toggle
+        if (gamepad1.a && !lastAButton) {
+            slowMode = !slowMode;
+            speedMultiplier = slowMode ? SLOW_MODE_MULTIPLIER : NORMAL_SPEED;
+        }
+        lastAButton = gamepad1.a;
+        
+        // Calculate motor powers for mecanum drive
+        double leftFrontPower = (drive + strafe + turn) * speedMultiplier;
+        double leftBackPower = (drive - strafe + turn) * speedMultiplier;
+        double rightFrontPower = (drive - strafe - turn) * speedMultiplier;
+        double rightBackPower = (drive + strafe - turn) * speedMultiplier;
+        
+        // Normalize wheel powers
+        double maxPower = Math.max(Math.abs(leftFrontPower), Math.max(Math.abs(leftBackPower),
+                Math.max(Math.abs(rightFrontPower), Math.abs(rightBackPower))));
+        if (maxPower > 1.0) {
+            leftFrontPower /= maxPower;
+            leftBackPower /= maxPower;
+            rightFrontPower /= maxPower;
+            rightBackPower /= maxPower;
+        }
+        
+        // Set drive motor powers
+        if (leftFront != null) leftFront.setPower(leftFrontPower);
+        if (leftBack != null) leftBack.setPower(leftBackPower);
+        if (rightFront != null) rightFront.setPower(rightFrontPower);
+        if (rightBack != null) rightBack.setPower(rightBackPower);
+        
+        // Intake Control
+        if (intake != null) {
+            if (gamepad1.right_bumper) {
+                intake.setPower(1.0);  // Intake in
+            } else if (gamepad1.left_bumper) {
+                intake.setPower(-1.0); // Intake out (eject)
+            } else {
+                intake.setPower(0);
+            }
+        }
+        
+        // === GAMEPAD 2 - OPERATOR ===
+        
+        // Arm/Lift Control
+        if (arm != null) {
+            double armPower = -gamepad2.left_stick_y * 0.8;
+            
+            // Preset positions
+            if (gamepad2.dpad_down) {
+                setArmPosition(ARM_GROUND);
+            } else if (gamepad2.dpad_left) {
+                setArmPosition(ARM_LOW);
+            } else if (gamepad2.dpad_right) {
+                setArmPosition(ARM_MID);
+            } else if (gamepad2.dpad_up) {
+                setArmPosition(ARM_HIGH);
+            } else {
+                arm.setPower(armPower);
+            }
+        }
+        
+        // Launcher/Shooter Control
+        if (launcher != null) {
+            if (gamepad2.right_trigger > 0.1) {
+                launcher.setPower(gamepad2.right_trigger);
+            } else {
+                launcher.setPower(0);
+            }
+        }
+        
+        // Claw Control
+        if (claw != null) {
+            if (gamepad2.a) {
+                claw.setPosition(CLAW_CLOSED);
+            } else if (gamepad2.b) {
+                claw.setPosition(CLAW_OPEN);
+            }
+        }
+        
+        // Gate Actuator Toggle
+        if (gamepad2.x && !lastXButton) {
+            gateOpen = !gateOpen;
+            if (gateServo != null) {
+                gateServo.setPosition(gateOpen ? GATE_OPEN : GATE_CLOSED);
+            }
+        }
+        lastXButton = gamepad2.x;
+        
+        // Wrist Control
+        if (wrist != null) {
+            if (gamepad2.left_bumper) {
+                wrist.setPosition(WRIST_DOWN);
+            } else if (gamepad2.right_bumper) {
+                wrist.setPosition(WRIST_UP);
+            }
+        }
+        
+        // === TELEMETRY ===
+        displayTelemetry();
+    }
+    
+    private void setArmPosition(int position) {
+        if (arm != null) {
+            arm.setTargetPosition(position);
+            arm.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            arm.setPower(0.6);
+        }
+    }
+    
+    private void displayTelemetry() {
+        // Match Timer
+        double timeRemaining = 150 - matchTimer.seconds(); // 2:30 = 150 seconds
+        int minutes = (int) timeRemaining / 60;
+        int seconds = (int) timeRemaining % 60;
+        
+        telemetry.addData("=== MATCH INFO ===", "");
+        telemetry.addData("Time Remaining", String.format("%d:%02d", minutes, seconds));
+        telemetry.addData("Mode", slowMode ? "SLOW" : "NORMAL");
+        telemetry.addData("", "");
+        
+        telemetry.addData("=== DRIVE ===", "");
+        telemetry.addData("LF Power", leftFront != null ? leftFront.getPower() : "N/A");
+        telemetry.addData("RF Power", rightFront != null ? rightFront.getPower() : "N/A");
+        telemetry.addData("", "");
+        
+        telemetry.addData("=== MECHANISMS ===", "");
+        telemetry.addData("Intake", intake != null ? (intake.getPower() > 0 ? "IN" : intake.getPower() < 0 ? "OUT" : "OFF") : "N/A");
+        telemetry.addData("Arm Position", arm != null ? arm.getCurrentPosition() : "N/A");
+        telemetry.addData("Launcher", launcher != null ? launcher.getPower() : "N/A");
+        telemetry.addData("Claw", claw != null ? claw.getPosition() : "N/A");
+        telemetry.addData("Gate", gateOpen ? "OPEN" : "CLOSED");
+        
+        // Endgame Warning
+        if (timeRemaining < 30 && timeRemaining > 0) {
+            telemetry.addData("", "");
+            telemetry.addData("!!! ENDGAME !!!", "Prepare for parking/hanging!");
+        }
+        
+        telemetry.update();
+    }
+    
+    @Override
+    public void stop() {
+        // Stop all motors
+        if (leftFront != null) leftFront.setPower(0);
+        if (leftBack != null) leftBack.setPower(0);
+        if (rightFront != null) rightFront.setPower(0);
+        if (rightBack != null) rightBack.setPower(0);
+        if (intake != null) intake.setPower(0);
+        if (arm != null) arm.setPower(0);
+        if (launcher != null) launcher.setPower(0);
+    }
+}
