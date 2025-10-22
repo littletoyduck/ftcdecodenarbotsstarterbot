@@ -1,0 +1,389 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.util.ElapsedTime;
+
+/**
+ * DECODE 2025-2026 Autonomous Mode
+ * 
+ * This OpMode runs during the 30-second autonomous period.
+ * 
+ * Basic Strategy:
+ * 1. Start from starting zone
+ * 2. Score preloaded artifact
+ * 3. Collect additional artifacts
+ * 4. Score in goal
+ * 5. Park in designated zone
+ * 
+ * IMPORTANT: Adjust all distances, powers, and timings for your specific robot!
+ */
+@Autonomous(name="DECODE Auto", group="Competition")
+public class DECODEAutonomous extends LinearOpMode {
+    
+    // Hardware
+    private DcMotor leftFront = null;
+    private DcMotor leftBack = null;
+    private DcMotor rightFront = null;
+    private DcMotor rightBack = null;
+    private DcMotor intake = null;
+    private DcMotor arm = null;
+    private DcMotor launcher = null;
+    private Servo claw = null;
+    private Servo gateServo = null;
+    
+    // Timer
+    private ElapsedTime runtime = new ElapsedTime();
+    
+    // Constants (ADJUST THESE FOR YOUR ROBOT)
+    private static final double DRIVE_SPEED = 0.6;
+    private static final double TURN_SPEED = 0.4;
+    private static final double COUNTS_PER_INCH = 50; // Adjust based on your wheel size
+    
+    // Servo Positions
+    private static final double CLAW_OPEN = 0.5;
+    private static final double CLAW_CLOSED = 0.0;
+    private static final double GATE_OPEN = 0.7;
+    private static final double GATE_CLOSED = 0.3;
+    
+    @Override
+    public void runOpMode() {
+        
+        // Initialize hardware
+        initHardware();
+        
+        telemetry.addData("Status", "Ready to run");
+        telemetry.addData("Alliance", "Configure based on your starting position");
+        telemetry.update();
+        
+        // Wait for start
+        waitForStart();
+        runtime.reset();
+        
+        if (opModeIsActive()) {
+            
+            // === AUTONOMOUS SEQUENCE ===
+            
+            telemetry.addData("Status", "Running Autonomous");
+            telemetry.update();
+            
+            // Step 1: Close claw on preloaded artifact
+            closeClaw();
+            sleep(500);
+            
+            // Step 2: Drive forward to goal area
+            driveForward(24, DRIVE_SPEED); // Drive 24 inches forward
+            sleep(200);
+            
+            // Step 3: Raise arm to scoring position
+            raiseArm(1000); // Adjust encoder counts
+            sleep(500);
+            
+            // Step 4: Launch/score artifact
+            scoreArtifact();
+            sleep(1000);
+            
+            // Step 5: Lower arm
+            lowerArm();
+            sleep(500);
+            
+            // Step 6: Drive to artifact collection zone
+            turnLeft(45); // Turn 45 degrees
+            sleep(200);
+            driveForward(12, DRIVE_SPEED);
+            sleep(200);
+            
+            // Step 7: Intake artifact
+            openClaw();
+            runIntake(1.0);
+            sleep(1500);
+            stopIntake();
+            closeClaw();
+            sleep(500);
+            
+            // Step 8: Return to goal
+            driveBackward(12, DRIVE_SPEED);
+            sleep(200);
+            turnRight(45);
+            sleep(200);
+            
+            // Step 9: Score second artifact
+            raiseArm(1000);
+            sleep(500);
+            scoreArtifact();
+            sleep(1000);
+            
+            // Step 10: Park in designated zone
+            lowerArm();
+            driveForward(18, DRIVE_SPEED);
+            sleep(200);
+            
+            telemetry.addData("Status", "Autonomous Complete!");
+            telemetry.addData("Time", "%.1f seconds", runtime.seconds());
+            telemetry.update();
+        }
+    }
+    
+    // === HARDWARE INITIALIZATION ===
+    
+    private void initHardware() {
+        telemetry.addData("Status", "Initializing Hardware...");
+        telemetry.update();
+        
+        // Drive motors
+        leftFront = hardwareMap.get(DcMotor.class, "left_front");
+        leftBack = hardwareMap.get(DcMotor.class, "left_back");
+        rightFront = hardwareMap.get(DcMotor.class, "right_front");
+        rightBack = hardwareMap.get(DcMotor.class, "right_back");
+        
+        leftFront.setDirection(DcMotor.Direction.FORWARD);
+        leftBack.setDirection(DcMotor.Direction.FORWARD);
+        rightFront.setDirection(DcMotor.Direction.REVERSE);
+        rightBack.setDirection(DcMotor.Direction.REVERSE);
+        
+        leftFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        leftBack.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        rightFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        rightBack.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        
+        leftFront.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        leftBack.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        rightFront.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        rightBack.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        
+        leftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        leftBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        rightFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        rightBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        
+        // Mechanism motors
+        try {
+            intake = hardwareMap.get(DcMotor.class, "intake");
+        } catch (Exception e) {
+            telemetry.addData("Warning", "Intake not found");
+        }
+        
+        try {
+            arm = hardwareMap.get(DcMotor.class, "arm");
+            arm.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+            arm.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            arm.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        } catch (Exception e) {
+            telemetry.addData("Warning", "Arm not found");
+        }
+        
+        try {
+            launcher = hardwareMap.get(DcMotor.class, "launcher");
+        } catch (Exception e) {
+            telemetry.addData("Warning", "Launcher not found");
+        }
+        
+        // Servos
+        try {
+            claw = hardwareMap.get(Servo.class, "claw");
+            claw.setPosition(CLAW_OPEN);
+        } catch (Exception e) {
+            telemetry.addData("Warning", "Claw not found");
+        }
+        
+        try {
+            gateServo = hardwareMap.get(Servo.class, "gate");
+            gateServo.setPosition(GATE_CLOSED);
+        } catch (Exception e) {
+            telemetry.addData("Warning", "Gate servo not found");
+        }
+        
+        telemetry.addData("Status", "Hardware Initialized");
+        telemetry.update();
+    }
+    
+    // === MOVEMENT FUNCTIONS ===
+    
+    private void driveForward(double inches, double speed) {
+        int targetPosition = (int)(inches * COUNTS_PER_INCH);
+        
+        leftFront.setTargetPosition(leftFront.getCurrentPosition() + targetPosition);
+        leftBack.setTargetPosition(leftBack.getCurrentPosition() + targetPosition);
+        rightFront.setTargetPosition(rightFront.getCurrentPosition() + targetPosition);
+        rightBack.setTargetPosition(rightBack.getCurrentPosition() + targetPosition);
+        
+        leftFront.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        leftBack.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightFront.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightBack.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        
+        leftFront.setPower(speed);
+        leftBack.setPower(speed);
+        rightFront.setPower(speed);
+        rightBack.setPower(speed);
+        
+        while (opModeIsActive() && 
+               (leftFront.isBusy() || leftBack.isBusy() || 
+                rightFront.isBusy() || rightBack.isBusy())) {
+            telemetry.addData("Status", "Driving Forward");
+            telemetry.addData("Target", inches + " inches");
+            telemetry.update();
+        }
+        
+        stopDriveMotors();
+        setDriveModeRunUsingEncoder();
+    }
+    
+    private void driveBackward(double inches, double speed) {
+        driveForward(-inches, speed);
+    }
+    
+    private void strafeRight(double inches, double speed) {
+        int targetPosition = (int)(inches * COUNTS_PER_INCH);
+        
+        leftFront.setTargetPosition(leftFront.getCurrentPosition() + targetPosition);
+        leftBack.setTargetPosition(leftBack.getCurrentPosition() - targetPosition);
+        rightFront.setTargetPosition(rightFront.getCurrentPosition() - targetPosition);
+        rightBack.setTargetPosition(rightBack.getCurrentPosition() + targetPosition);
+        
+        leftFront.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        leftBack.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightFront.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightBack.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        
+        leftFront.setPower(speed);
+        leftBack.setPower(speed);
+        rightFront.setPower(speed);
+        rightBack.setPower(speed);
+        
+        while (opModeIsActive() && 
+               (leftFront.isBusy() || leftBack.isBusy() || 
+                rightFront.isBusy() || rightBack.isBusy())) {
+            telemetry.addData("Status", "Strafing Right");
+            telemetry.update();
+        }
+        
+        stopDriveMotors();
+        setDriveModeRunUsingEncoder();
+    }
+    
+    private void strafeLeft(double inches, double speed) {
+        strafeRight(-inches, speed);
+    }
+    
+    private void turnRight(double degrees) {
+        // Adjust multiplier based on your robot's turning characteristics
+        int targetPosition = (int)(degrees * 10); // Tune this value
+        
+        leftFront.setTargetPosition(leftFront.getCurrentPosition() + targetPosition);
+        leftBack.setTargetPosition(leftBack.getCurrentPosition() + targetPosition);
+        rightFront.setTargetPosition(rightFront.getCurrentPosition() - targetPosition);
+        rightBack.setTargetPosition(rightBack.getCurrentPosition() - targetPosition);
+        
+        leftFront.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        leftBack.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightFront.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightBack.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        
+        leftFront.setPower(TURN_SPEED);
+        leftBack.setPower(TURN_SPEED);
+        rightFront.setPower(TURN_SPEED);
+        rightBack.setPower(TURN_SPEED);
+        
+        while (opModeIsActive() && 
+               (leftFront.isBusy() || leftBack.isBusy() || 
+                rightFront.isBusy() || rightBack.isBusy())) {
+            telemetry.addData("Status", "Turning Right");
+            telemetry.update();
+        }
+        
+        stopDriveMotors();
+        setDriveModeRunUsingEncoder();
+    }
+    
+    private void turnLeft(double degrees) {
+        turnRight(-degrees);
+    }
+    
+    // === MECHANISM FUNCTIONS ===
+    
+    private void raiseArm(int encoderCounts) {
+        if (arm != null) {
+            arm.setTargetPosition(encoderCounts);
+            arm.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            arm.setPower(0.6);
+            
+            while (opModeIsActive() && arm.isBusy()) {
+                telemetry.addData("Arm", "Raising to position");
+                telemetry.update();
+            }
+        }
+    }
+    
+    private void lowerArm() {
+        if (arm != null) {
+            arm.setTargetPosition(0);
+            arm.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            arm.setPower(0.4);
+            
+            while (opModeIsActive() && arm.isBusy()) {
+                telemetry.addData("Arm", "Lowering");
+                telemetry.update();
+            }
+        }
+    }
+    
+    private void scoreArtifact() {
+        if (launcher != null) {
+            launcher.setPower(1.0);
+            sleep(1000);
+            launcher.setPower(0);
+        }
+        // Alternative: use claw/gate to score
+        if (gateServo != null) {
+            gateServo.setPosition(GATE_OPEN);
+            sleep(500);
+            gateServo.setPosition(GATE_CLOSED);
+        }
+        if (claw != null) {
+            openClaw();
+        }
+    }
+    
+    private void closeClaw() {
+        if (claw != null) {
+            claw.setPosition(CLAW_CLOSED);
+        }
+    }
+    
+    private void openClaw() {
+        if (claw != null) {
+            claw.setPosition(CLAW_OPEN);
+        }
+    }
+    
+    private void runIntake(double power) {
+        if (intake != null) {
+            intake.setPower(power);
+        }
+    }
+    
+    private void stopIntake() {
+        if (intake != null) {
+            intake.setPower(0);
+        }
+    }
+    
+    // === UTILITY FUNCTIONS ===
+    
+    private void stopDriveMotors() {
+        leftFront.setPower(0);
+        leftBack.setPower(0);
+        rightFront.setPower(0);
+        rightBack.setPower(0);
+    }
+    
+    private void setDriveModeRunUsingEncoder() {
+        leftFront.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        leftBack.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        rightFront.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        rightBack.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+    }
+}
